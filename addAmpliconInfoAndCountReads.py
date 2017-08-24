@@ -1,3 +1,9 @@
+#
+# David Spencer dspencer@wustl.edu
+#
+# This is my first python script. Dont laugh.
+#
+
 from __future__ import division
 import pysam
 from Bio import pairwise2
@@ -17,7 +23,7 @@ parser.add_argument('-w',"--window",type=int,default=150,
                     help='window for creating ref and alt sequences')
 parser.add_argument('-m',"--minreads",type=int,default=4,
                     help='minimum reads for defining an amplicon')
-parser.add_argument('-v',"--minreads4vaf",type=int,default=4,
+parser.add_argument('-v',"--minreads4vaf",type=int,default=100,
                     help='minimum reads in an amplicon for amplicon-based vaf calculation')
 
 args = parser.parse_args()
@@ -38,6 +44,7 @@ minampreads = args.minreads
 # minimum number of reads in an amplicon needed to be eligible to calculate a VAF
 minampreadsforvaf = args.minreads4vaf
 
+# add to vcf header
 vcffile.header.formats.add("TAMP", 1, 'Integer', 'Estimated number of Haloplex amplicons at this position')
 vcffile.header.formats.add("SAMP", 1, 'Integer', 'Estimated number of Haloplex amplicons at this position that support the alternate allele')
 vcffile.header.formats.add("VAFTYPE", 1, 'String', 'Either MAX (max amplicon VAF) or MEAN (mean of all reads)')
@@ -45,10 +52,12 @@ vcffile.header.formats.add("AMPS", 1, 'String', 'Amplicon string, in the format 
 vcffile.header.formats.add("CVAF", 1, 'Float', 'Calculated VAF, which is either the maximum per-amplicon VAF (among amplicons with >' + str(minampreadsforvaf) + ' reads), or the mean for all reads (if no available amplicons or the max is 1.0 and the mean is <1.0')
 vcffile.header.add_line("##ampliconparseroptions={'window':"+str(window)+",'minampreads':"+str(minampreads)+",'minampreadsforvaf':"+str(minampreadsforvaf)+"}")
 
+# print header
 hdr = str(vcffile.header).rstrip().split("\n")
 hd = hdr.pop()
 print "\n".join(hdr) + "\n" + ("\t".join((hd.split("\t"))[0:9])) + "\t" + mysample
 
+# iterate through records
 for rec in vcffile.fetch():
 
     amps = {'ref':[],'alt':[]}
@@ -87,6 +96,7 @@ for rec in vcffile.fetch():
                         
     else: # if indel
 
+        # make ref and alt sequences
         refseqstart = rec.pos-window-1
         refseqend = rec.pos+window
         refseq = fa.fetch(rec.contig,refseqstart,refseqend)
@@ -128,7 +138,7 @@ for rec in vcffile.fetch():
                     elif len(rec.ref) < len(rec.alts[0]) and read.indel > 0 and rec.alts[0] == read.alignment.seq[read.query_position:read.query_position+read.indel+1]:
                         amps['alt'].append(ampname)
                     # if none of the above are satisified, use the alignment method
-                    # to assign reads to alleles
+                    # to assign reads to alleles based on the best alignment
                     else:
                         rdseq = read.alignment.query_sequence
                             
@@ -152,6 +162,8 @@ for rec in vcffile.fetch():
             if amps['ref'].count(a) + amps['alt'].count(a) > minampreadsforvaf:
                 ampvafs.append(amps['alt'].count(a) / (amps['ref'].count(a) + amps['alt'].count(a)))
 
+    # assign VAF. Use maximum per amplicon VAF if there is an amplicon with minampreadsforvaf,
+    # and the max is not 1 (if there are reference reads, too). 
     myvaf = 'N/A'
     vaftype = 'MAX'
     if len(ampvafs)>0 and not (max(ampvafs) == 1.0 and len(amps['ref']) > 0):
